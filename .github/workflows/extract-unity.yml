@@ -1,0 +1,58 @@
+
+name: Extract Unity Project
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  extract:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Extract Unity ZIP
+        run: |
+          set -e
+          ZIP_FILE=$(find . -maxdepth 1 -type f -iname "*.zip" | head -n 1)
+
+          if [ -z "$ZIP_FILE" ]; then
+            echo "File ZIP tidak ditemukan"
+            exit 1
+          fi
+
+          mkdir -p /tmp/unity-project
+          unzip -q "$ZIP_FILE" -d /tmp/unity-project
+
+          ASSETS_DIR=$(find /tmp/unity-project -type d -name Assets -print -quit)
+
+          if [ -z "$ASSETS_DIR" ]; then
+            echo "Folder Assets tidak ditemukan"
+            exit 1
+          fi
+
+          PROJECT_DIR=$(dirname "$ASSETS_DIR")
+
+          for folder in Assets Packages ProjectSettings; do
+            if [ ! -d "$PROJECT_DIR/$folder" ]; then
+              echo "Folder $folder tidak ditemukan"
+              exit 1
+            fi
+            rm -rf "$folder"
+            cp -a "$PROJECT_DIR/$folder" .
+          done
+
+          if [ -f "$PROJECT_DIR/README_ID.txt" ]; then
+            cp "$PROJECT_DIR/README_ID.txt" .
+          fi
+
+      - name: Save extracted project
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Extract ASTRAVION Unity project" || echo "No changes"
+          git push
