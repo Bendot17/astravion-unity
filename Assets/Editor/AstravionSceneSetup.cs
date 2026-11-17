@@ -1,6 +1,6 @@
 
 using System;
-using System.Linq;
+using System.IO;
 using UnityEditor;
 using UnityEditor.Build;
 using UnityEditor.Build.Reporting;
@@ -8,73 +8,60 @@ using UnityEditor.SceneManagement;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 
-[InitializeOnLoad]
 public static class AstravionSceneSetup
 {
     private const string ScenePath = "Assets/Scenes/Astravion.unity";
 
-    static AstravionSceneSetup()
+    [InitializeOnLoadMethod]
+    private static void Initialize()
     {
-        EditorApplication.delayCall += EnsureScene;
+        EditorApplication.delayCall += CreateScene;
     }
 
-    public static void EnsureScene()
+    [MenuItem("ASTRAVION/Create Game Scene")]
+    public static void CreateScene()
     {
+        if (EditorApplication.isCompiling)
+            return;
+
         if (!AssetDatabase.IsValidFolder("Assets/Scenes"))
             AssetDatabase.CreateFolder("Assets", "Scenes");
 
-        Scene scene;
+        Scene scene = EditorSceneManager.NewScene(
+            NewSceneSetup.DefaultGameObjects,
+            NewSceneMode.Single
+        );
 
-        if (AssetDatabase.LoadAssetAtPath<SceneAsset>(ScenePath) == null)
-            scene = EditorSceneManager.NewScene(
-                NewSceneSetup.EmptyScene, NewSceneMode.Single);
-        else
-            scene = EditorSceneManager.OpenScene(
-                ScenePath, OpenSceneMode.Single);
+        GameObject root = new GameObject("ASTRAVION_BOOTSTRAP");
 
-        GameObject root = GameObject.Find("ASTRAVION_BOOTSTRAP");
+        Type bootstrap = Type.GetType(
+            "AstravionBootstrap, Assembly-CSharp"
+        );
 
-        if (root == null)
-            root = new GameObject("ASTRAVION_BOOTSTRAP");
-
-        Type bootstrapType = FindBootstrapType();
-
-        if (bootstrapType != null &&
-            typeof(MonoBehaviour).IsAssignableFrom(bootstrapType))
+        if (bootstrap != null &&
+            typeof(MonoBehaviour).IsAssignableFrom(bootstrap))
         {
-            if (root.GetComponent(bootstrapType) == null)
-                root.AddComponent(bootstrapType);
+            root.AddComponent(bootstrap);
         }
         else
         {
-            Debug.LogError("AstravionBootstrap tidak ditemukan.");
+            Debug.LogError("AstravionBootstrap belum ditemukan.");
         }
 
         EditorSceneManager.SaveScene(scene, ScenePath);
 
-        var scenes = EditorBuildSettings.scenes.ToList();
+        AssetDatabase.Refresh();
 
-        if (!scenes.Any(s => s.path == ScenePath && s.enabled))
+        string sceneGuid = AssetDatabase.AssetPathToGUID(ScenePath);
+
+        EditorBuildSettings.scenes = new[]
         {
-            scenes.RemoveAll(s => s.path == ScenePath);
-            scenes.Add(new EditorBuildSettingsScene(ScenePath, true));
-            EditorBuildSettings.scenes = scenes.ToArray();
-        }
+            new EditorBuildSettingsScene(ScenePath, true)
+        };
 
         AssetDatabase.SaveAssets();
-        Debug.Log("ASTRAVION Scene berhasil disiapkan.");
-    }
 
-    private static Type FindBootstrapType()
-    {
-        foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
-        {
-            Type type = assembly.GetType("AstravionBootstrap");
-            if (type != null)
-                return type;
-        }
-
-        return null;
+        Debug.Log("ASTRAVION Scene dibuat. GUID: " + sceneGuid);
     }
 }
 
@@ -84,6 +71,17 @@ public class AstravionBuildScenePreprocessor : IPreprocessBuildWithReport
 
     public void OnPreprocessBuild(BuildReport report)
     {
-        AstravionSceneSetup.EnsureScene();
+        if (!File.Exists(ScenePathForBuild))
+            throw new BuildFailedException(
+                "ASTRAVION Scene belum dibuat. Jalankan menu ASTRAVION/Create Game Scene."
+            );
+
+        if (EditorBuildSettings.scenes.Length == 0)
+            throw new BuildFailedException(
+                "Build Settings belum memiliki Scene."
+            );
     }
+
+    private const string ScenePathForBuild =
+        "Assets/Scenes/Astravion.unity";
 }
